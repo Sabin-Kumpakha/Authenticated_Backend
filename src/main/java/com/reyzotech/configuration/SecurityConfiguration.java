@@ -1,5 +1,10 @@
 package com.reyzotech.configuration;
 
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -7,6 +12,7 @@ import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -56,9 +62,10 @@ public class SecurityConfiguration {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> {
                     auth.requestMatchers("/auth/**").permitAll();
+                    //
                     auth.requestMatchers("/admin/**").hasRole("ADMIN");
-                    auth.requestMatchers("/doctor/**").hasAnyRole("ADMIN","DOCTOR");
-                    auth.requestMatchers("/user/**").hasAnyRole("ADMIN", "DOCTOR", "USER");
+                    auth.requestMatchers("/doctor/**").hasAnyRole("DOCTOR", "ADMIN");
+                    auth.requestMatchers("/user/**").hasRole( "USER");
                     auth.anyRequest().authenticated();
                 });
 
@@ -89,8 +96,35 @@ public class SecurityConfiguration {
         JwtGrantedAuthoritiesConverter jwtGrantedAuthoritiesConverter = new JwtGrantedAuthoritiesConverter();
         jwtGrantedAuthoritiesConverter.setAuthoritiesClaimName("roles");
         jwtGrantedAuthoritiesConverter.setAuthorityPrefix("ROLE_");
+
+        // JwtAuthenticationConverter jwtConverter = new JwtAuthenticationConverter();
+        // jwtConverter.setJwtGrantedAuthoritiesConverter(jwtGrantedAuthoritiesConverter);
+
         JwtAuthenticationConverter jwtConverter = new JwtAuthenticationConverter();
-        jwtConverter.setJwtGrantedAuthoritiesConverter(jwtGrantedAuthoritiesConverter);
+        jwtConverter.setJwtGrantedAuthoritiesConverter((token) -> {
+            Collection<GrantedAuthority> authorities = jwtGrantedAuthoritiesConverter.convert(token);
+            Set<String> roles = new HashSet<>();
+
+            // Extract roles from authorities
+            for (GrantedAuthority authority : authorities) {
+                roles.add(authority.getAuthority());
+            }
+
+            // Check user roles and filter authorities
+            if (roles.contains("ROLE_ADMIN")) {
+                return authorities; // Admin can access any role
+            } else if (roles.contains("ROLE_DOCTOR")) {
+                return authorities.stream()
+                        .filter(authority -> authority.getAuthority().equals("ROLE_DOCTOR"))
+                        .collect(Collectors.toList()); // Doctor can access only Doctor role
+            } else if (roles.contains("ROLE_USER")) {
+                return authorities.stream()
+                        .filter(authority -> authority.getAuthority().equals("ROLE_USER"))
+                        .collect(Collectors.toList()); // User can access only User role
+            }
+
+            return authorities; // Default case, return all authorities
+        });
         return jwtConverter;
     }
 }
